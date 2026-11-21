@@ -3,98 +3,127 @@
 namespace Modules\SellerManagement\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-use Modules\SellerManagement\Models\Website;
-use Modules\SellerManagement\Http\Requests\StoreWebsiteRequest;
-use Modules\SellerManagement\Http\Requests\UpdateWebsiteRequest;
+use Modules\Shared\Models\Website;
+use Modules\Shared\Models\Seller;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Response;
 
 class WebsiteController extends Controller
 {
     /**
-     * Display a listing of websites inventory.
+     * Render the Websites Inventory Blade view.
+     */
+    public function renderView($viewFactory)
+    {
+        try {
+            $websites = Website::with('vendor')->latest()->get()->toArray();
+            $sellers = Seller::orderBy('name')->get()->toArray();
+        } catch (\Exception $e) {
+            $websites = [];
+            $sellers = [];
+        }
+
+        return $viewFactory->make('websites.index', [
+            'websites' => $websites,
+            'sellers' => $sellers,
+        ]);
+    }
+
+    /**
+     * Display a listing of websites (API / JSON).
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Website::with('vendor');
+        $websites = Website::with('vendor')->latest()->get();
 
-        if ($request->has('search')) {
-            $search = $request->get('search');
-            $query->where('website_name', 'like', "%{$search}%")
-                  ->orWhere('website_url', 'like', "%{$search}%")
-                  ->orWhere('niche', 'like', "%{$search}%");
-        }
-
-        if ($request->has('vendor_id')) {
-            $query->where('vendor_id', $request->get('vendor_id'));
-        }
-
-        if ($request->has('niche')) {
-            $query->where('niche', $request->get('niche'));
-        }
-
-        $websites = $query->latest()->paginate(15);
-
-        return Response::json([
+        return response()->json([
             'status' => 'success',
             'data' => $websites
         ]);
     }
 
     /**
-     * Store a newly created website in inventory.
+     * Store a newly created website.
      */
-    public function store(StoreWebsiteRequest $request): JsonResponse
+    public function store(array $body): array
     {
-        $website = Website::create($request->validated());
+        if (empty(trim($body['website_name'] ?? '')) || empty(trim($body['website_url'] ?? '')) || empty($body['vendor_id'])) {
+            http_response_code(422);
+            return ['status' => 'error', 'message' => 'Website Name, URL, and Vendor are required.'];
+        }
 
-        return Response::json([
+        $website = Website::create([
+            'vendor_id' => (int)$body['vendor_id'],
+            'website_name' => trim($body['website_name']),
+            'website_url' => trim($body['website_url']),
+            'niche' => trim($body['niche'] ?? 'General'),
+            'domain_authority' => !empty($body['domain_authority']) ? (int)$body['domain_authority'] : null,
+            'domain_rating' => !empty($body['domain_rating']) ? (int)$body['domain_rating'] : null,
+            'traffic' => !empty($body['traffic']) ? (int)$body['traffic'] : null,
+            'vendor_price' => (float)($body['vendor_price'] ?? 0),
+            'turnaround_days' => !empty($body['turnaround_days']) ? (int)$body['turnaround_days'] : null,
+            'status' => $body['status'] ?? 'active',
+            'notes' => trim($body['notes'] ?? null) ?: null,
+        ]);
+
+        return [
             'status' => 'success',
-            'message' => 'Website added to inventory successfully.',
+            'message' => 'Website added to inventory successfully!',
             'data' => $website->load('vendor')
-        ], 201);
+        ];
     }
 
     /**
      * Display the specified website.
      */
-    public function show($id): JsonResponse
+    public function show($id): array
     {
         $website = Website::with('vendor')->findOrFail($id);
-
-        return Response::json([
+        return [
             'status' => 'success',
             'data' => $website
-        ]);
+        ];
     }
 
     /**
      * Update the specified website.
      */
-    public function update(UpdateWebsiteRequest $request, $id): JsonResponse
+    public function update($id, array $body): array
     {
         $website = Website::findOrFail($id);
-        $website->update($request->validated());
 
-        return Response::json([
-            'status' => 'success',
-            'message' => 'Website updated successfully.',
-            'data' => $website->load('vendor')
+        $website->update([
+            'vendor_id' => !empty($body['vendor_id']) ? (int)$body['vendor_id'] : $website->vendor_id,
+            'website_name' => !empty($body['website_name']) ? trim($body['website_name']) : $website->website_name,
+            'website_url' => !empty($body['website_url']) ? trim($body['website_url']) : $website->website_url,
+            'niche' => !empty($body['niche']) ? trim($body['niche']) : $website->niche,
+            'domain_authority' => array_key_exists('domain_authority', $body) ? (!empty($body['domain_authority']) ? (int)$body['domain_authority'] : null) : $website->domain_authority,
+            'domain_rating' => array_key_exists('domain_rating', $body) ? (!empty($body['domain_rating']) ? (int)$body['domain_rating'] : null) : $website->domain_rating,
+            'traffic' => array_key_exists('traffic', $body) ? (!empty($body['traffic']) ? (int)$body['traffic'] : null) : $website->traffic,
+            'vendor_price' => isset($body['vendor_price']) ? (float)$body['vendor_price'] : $website->vendor_price,
+            'turnaround_days' => array_key_exists('turnaround_days', $body) ? (!empty($body['turnaround_days']) ? (int)$body['turnaround_days'] : null) : $website->turnaround_days,
+            'status' => $body['status'] ?? $website->status,
+            'notes' => array_key_exists('notes', $body) ? (trim($body['notes'] ?? null) ?: null) : $website->notes,
         ]);
+
+        return [
+            'status' => 'success',
+            'message' => 'Website inventory updated successfully!',
+            'data' => $website->fresh()->load('vendor')
+        ];
     }
 
     /**
-     * Remove the specified website (Soft delete).
+     * Remove the specified website.
      */
-    public function destroy($id): JsonResponse
+    public function destroy($id): array
     {
         $website = Website::findOrFail($id);
         $website->delete();
 
-        return Response::json([
+        return [
             'status' => 'success',
-            'message' => 'Website removed from inventory.'
-        ]);
+            'message' => 'Website removed from inventory successfully.'
+        ];
     }
 }

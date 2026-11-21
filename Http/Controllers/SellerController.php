@@ -3,32 +3,36 @@
 namespace Modules\SellerManagement\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-use Modules\SellerManagement\Models\Seller;
-use Modules\SellerManagement\Http\Requests\StoreSellerRequest;
-use Modules\SellerManagement\Http\Requests\UpdateSellerRequest;
+use Modules\Shared\Models\Seller;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Response;
 
 class SellerController extends Controller
 {
     /**
-     * Display a listing of sellers/vendors.
+     * Render the Sellers Blade view.
+     */
+    public function renderView($viewFactory)
+    {
+        try {
+            $sellers = Seller::latest()->get()->toArray();
+        } catch (\Exception $e) {
+            $sellers = [];
+        }
+
+        return $viewFactory->make('sellers.index', [
+            'sellers' => $sellers
+        ]);
+    }
+
+    /**
+     * Display a listing of sellers (API / JSON).
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Seller::query();
+        $sellers = Seller::latest()->get();
 
-        if ($request->has('search')) {
-            $search = $request->get('search');
-            $query->where('name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%")
-                  ->orWhere('company_name', 'like', "%{$search}%");
-        }
-
-        $sellers = $query->latest()->paginate(15);
-
-        return Response::json([
+        return response()->json([
             'status' => 'success',
             'data' => $sellers
         ]);
@@ -37,56 +41,79 @@ class SellerController extends Controller
     /**
      * Store a newly created seller.
      */
-    public function store(StoreSellerRequest $request): JsonResponse
+    public function store(array $body): array
     {
-        $seller = Seller::create($request->validated());
+        if (empty(trim($body['name'] ?? ''))) {
+            http_response_code(422);
+            return ['status' => 'error', 'message' => 'Seller Name is required.'];
+        }
 
-        return Response::json([
+        $seller = Seller::create([
+            'name' => trim($body['name']),
+            'email' => trim($body['email'] ?? null) ?: null,
+            'phone' => trim($body['phone'] ?? null) ?: null,
+            'company_name' => trim($body['company_name'] ?? null) ?: null,
+            'country' => trim($body['country'] ?? null) ?: null,
+            'notes' => trim($body['notes'] ?? null) ?: null,
+        ]);
+
+        return [
             'status' => 'success',
-            'message' => 'Seller / Vendor created successfully.',
+            'message' => 'Seller added successfully!',
             'data' => $seller
-        ], 201);
+        ];
     }
 
     /**
      * Display the specified seller.
      */
-    public function show($id): JsonResponse
+    public function show($id): array
     {
         $seller = Seller::findOrFail($id);
-
-        return Response::json([
+        return [
             'status' => 'success',
             'data' => $seller
-        ]);
+        ];
     }
 
     /**
      * Update the specified seller.
      */
-    public function update(UpdateSellerRequest $request, $id): JsonResponse
+    public function update($id, array $body): array
     {
-        $seller = Seller::findOrFail($id);
-        $seller->update($request->validated());
+        if (empty(trim($body['name'] ?? ''))) {
+            http_response_code(422);
+            return ['status' => 'error', 'message' => 'Seller Name is required.'];
+        }
 
-        return Response::json([
-            'status' => 'success',
-            'message' => 'Seller / Vendor updated successfully.',
-            'data' => $seller
+        $seller = Seller::findOrFail($id);
+        $seller->update([
+            'name' => trim($body['name']),
+            'email' => trim($body['email'] ?? null) ?: null,
+            'phone' => trim($body['phone'] ?? null) ?: null,
+            'company_name' => trim($body['company_name'] ?? null) ?: null,
+            'country' => trim($body['country'] ?? null) ?: null,
+            'notes' => trim($body['notes'] ?? null) ?: null,
         ]);
+
+        return [
+            'status' => 'success',
+            'message' => 'Seller updated successfully!',
+            'data' => $seller
+        ];
     }
 
     /**
      * Remove the specified seller (Soft delete).
      */
-    public function destroy($id): JsonResponse
+    public function destroy($id): array
     {
         $seller = Seller::findOrFail($id);
         $seller->delete();
 
-        return Response::json([
+        return [
             'status' => 'success',
-            'message' => 'Seller / Vendor soft-deleted successfully.'
-        ]);
+            'message' => 'Seller deleted successfully.'
+        ];
     }
 }
