@@ -25,4 +25,12 @@ class Seller extends Model
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
     ];
+
+    /**
+     * Websites inventory provided by this vendor.
+     */
+    public function websites()
+    {
+        return $this->hasMany(Website::class, 'vendor_id');
+    }
 }
