@@ -126,4 +126,172 @@ class WebsiteController extends Controller
             'message' => 'Website removed from inventory successfully.'
         ];
     }
+
+    /**
+     * Bulk import websites from Excel/CSV parsed payload.
+     */
+    public function bulkImport(array $body): array
+    {
+        $websites = $body['websites'] ?? [];
+        if (!is_array($websites) || empty($websites)) {
+            http_response_code(422);
+            return ['status' => 'error', 'message' => 'No website data provided for import.'];
+        }
+
+        $defaultVendorId = !empty($body['vendor_id']) ? (int)$body['vendor_id'] : null;
+        if (!$defaultVendorId) {
+            $firstVendor = Seller::first();
+            $defaultVendorId = $firstVendor ? $firstVendor->id : null;
+        }
+
+        if (!$defaultVendorId) {
+            http_response_code(422);
+            return ['status' => 'error', 'message' => 'No active vendor found. Please register at least one vendor first.'];
+        }
+
+        $duplicateAction = $body['duplicate_action'] ?? 'skip'; // 'update' or 'skip'
+
+        $imported = 0;
+        $updated = 0;
+        $skipped = 0;
+
+        foreach ($websites as $row) {
+            $rawUrl = trim($row['website_url'] ?? $row['url'] ?? $row['domain'] ?? '');
+            if (empty($rawUrl)) {
+                $skipped++;
+                continue;
+            }
+
+            // Clean domain and URL
+            $cleanDomain = preg_replace('#^https?://#i', '', $rawUrl);
+            $cleanDomain = preg_replace('#^www\.#i', '', $cleanDomain);
+            $cleanDomain = rtrim($cleanDomain, '/');
+
+            $name = trim($row['website_name'] ?? '');
+            if (empty($name)) {
+                $name = ucfirst(explode('.', $cleanDomain)[0] ?? $cleanDomain);
+            }
+
+            $formattedUrl = (strpos($rawUrl, 'http://') === 0 || strpos($rawUrl, 'https://') === 0) 
+                ? $rawUrl 
+                : 'https://' . $cleanDomain;
+
+            $vendorId = !empty($row['vendor_id']) ? (int)$row['vendor_id'] : $defaultVendorId;
+            $niche = trim($row['niche'] ?? 'General') ?: 'General';
+            $da = isset($row['domain_authority']) && is_numeric($row['domain_authority']) ? (int)$row['domain_authority'] : null;
+            $dr = isset($row['domain_rating']) && is_numeric($row['domain_rating']) ? (int)$row['domain_rating'] : null;
+            $traffic = isset($row['traffic']) && is_numeric($row['traffic']) ? (int)$row['traffic'] : null;
+            $price = isset($row['vendor_price']) && is_numeric($row['vendor_price']) ? (float)$row['vendor_price'] : 0.0;
+            $tat = isset($row['turnaround_days']) && is_numeric($row['turnaround_days']) ? (int)$row['turnaround_days'] : 3;
+            $notes = trim($row['notes'] ?? '') ?: null;
+
+            // Search for existing website by clean domain or URL
+            $existing = Website::where('website_url', $formattedUrl)
+                ->orWhere('website_url', 'like', '%' . $cleanDomain . '%')
+                ->first();
+
+            if ($existing) {
+                if ($duplicateAction === 'update') {
+                    $existing->update([
+                        'website_name' => $name,
+                        'niche' => $niche,
+                        'domain_authority' => $da !== null ? $da : $existing->domain_authority,
+                        'domain_rating' => $dr !== null ? $dr : $existing->domain_rating,
+                        'traffic' => $traffic !== null ? $traffic : $existing->traffic,
+                        'vendor_price' => $price > 0 ? $price : $existing->vendor_price,
+                        'turnaround_days' => $tat ?: $existing->turnaround_days,
+                        'notes' => $notes ?: $existing->notes,
+                    ]);
+                    $updated++;
+                } else {
+                    $skipped++;
+                }
+            } else {
+                Website::create([
+                    'vendor_id' => $vendorId,
+                    'website_name' => $name,
+                    'website_url' => $formattedUrl,
+                    'niche' => $niche,
+                    'domain_authority' => $da,
+                    'domain_rating' => $dr,
+                    'traffic' => $traffic,
+                    'vendor_price' => $price,
+                    'turnaround_days' => $tat,
+                    'status' => 'active',
+                    'notes' => $notes,
+                ]);
+                $imported++;
+            }
+        }
+
+        return [
+            'status' => 'success',
+            'message' => "Bulk import completed! {$imported} added, {$updated} updated, {$skipped} skipped.",
+            'imported' => $imported,
+            'updated' => $updated,
+            'skipped' => $skipped,
+            'total' => count($websites),
+        ];
+    }
+
+    /**
+     * Download Sample CSV Template.
+     */
+    public function sampleTemplate()
+    {
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename=websites_inventory_template.csv');
+
+        $output = fopen('php://output', 'w');
+        fputcsv($output, [
+            'Website Name',
+            'Website URL',
+            'Niche',
+            'Domain Authority (DA)',
+            'Domain Rating (DR)',
+            'Monthly Traffic',
+            'Vendor Cost Price',
+            'Turnaround Days (TAT)',
+            'Notes'
+        ]);
+
+        fputcsv($output, [
+            'TechCrunch Media',
+            'https://techcrunch.com',
+            'Technology & AI',
+            '93',
+            '92',
+            '12500000',
+            '350.00',
+            '4',
+            'High authority tech outlet. Do-follow link included.'
+        ]);
+
+        fputcsv($output, [
+            'Forbes Finance Network',
+            'https://forbes.com',
+            'Finance & Business',
+            '95',
+            '94',
+            '25000000',
+            '450.00',
+            '3',
+            'Editorial review takes 48 hours.'
+        ]);
+
+        fputcsv($output, [
+            'Healthline Magazine',
+            'https://healthline.com',
+            'Health & Wellness',
+            '88',
+            '87',
+            '8000000',
+            '220.00',
+            '5',
+            'No casino or adult content allowed.'
+        ]);
+
+        fclose($output);
+        exit;
+    }
 }
